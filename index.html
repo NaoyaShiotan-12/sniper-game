@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>タクティカル・スナイパー・画面内コントロール</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #050805;
+            background-image: 
+                radial-gradient(circle at center, rgba(16, 40, 16, 0.6) 0%, rgba(5, 10, 5, 1) 80%),
+                linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 100% 100%, 40px 40px, 40px 40px;
+            color: #00ff00;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            overflow: hidden;
+            /* ⚠️ スコープ内に本物のマウスカーソルをそのまま表示して、ボタンを狙って押せるように変更 */
+            cursor: crosshair; 
+            user-select: none;
+        }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            transition: transform 0.05s ease-out;
+        }
+        .recoil { animation: screenShake 0.15s ease-out; }
+
+        /* UIオーバーレイ */
+        .screen-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(5, 15, 5, 0.9);
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            cursor: default;
+        }
+        h1 { font-size: 48px; margin-bottom: 10px; text-shadow: 0 0 15px #00ff00; letter-spacing: 4px; }
+        .subtitle { font-size: 18px; color: #88ff88; margin-bottom: 40px; }
+        .cyber-btn {
+            background: transparent; border: 2px solid #00ff00; color: #00ff00;
+            padding: 15px 40px; font-size: 22px; font-family: inherit; font-weight: bold;
+            cursor: pointer; box-shadow: 0 0 10px rgba(0,255,0,0.2); transition: all 0.2s ease;
+        }
+        .cyber-btn:hover { background: #00ff00; color: #050805; box-shadow: 0 0 25px #00ff00; }
+
+        /* ランキングボード */
+        .leaderboard { margin: 30px 0; width: 320px; border-top: 1px dashed rgba(0,255,0,0.5); border-bottom: 1px dashed rgba(0,255,0,0.5); padding: 15px 0; }
+        .rank-item { display: flex; justify-content: space-between; font-size: 18px; margin: 8px 0; color: #88ff88; }
+        .rank-item.current-score { color: #ffff00; text-shadow: 0 0 8px #ffff00; font-size: 20px; }
+
+        /* ゲーム中常時表示UI */
+        #ui {
+            position: absolute;
+            top: 25px; left: 30px;
+            font-size: 24px;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 0 8px rgba(0,255,0,0.6);
+            line-height: 1.5;
+            display: none;
+        }
+        .heart { color: #ff3333; text-shadow: 0 0 8px rgba(255,51,51,0.6); }
+        .ammo { color: #ffff00; text-shadow: 0 0 8px rgba(255,255,0,0.6); }
+
+        /* 🔘 画面内・半透明リロードボタン */
+        #hud-reload-btn {
+            position: fixed;
+            bottom: 40px;
+            right: 40px;
+            background: rgba(0, 40, 0, 0.4); /* 暗い緑の半透明 */
+            border: 1px solid rgba(0, 255, 0, 0.4); /* 目立ちすぎない半透明枠 */
+            color: rgba(0, 255, 0, 0.6);
+            padding: 12px 24px;
+            font-size: 18px;
+            font-family: inherit;
+            font-weight: bold;
+            letter-spacing: 2px;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 150; /* スコープより手前に配置 */
+            display: none; /* 開始まで非表示 */
+            box-shadow: inset 0 0 10px rgba(0,255,0,0.1);
+            transition: all 0.1s ease;
+        }
+        #hud-reload-btn:hover {
+            background: rgba(0, 255, 0, 0.2);
+            color: rgba(0, 255, 0, 1);
+            border-color: rgba(0, 255, 0, 1);
+            box-shadow: 0 0 15px rgba(0,255,0,0.3);
+        }
+
+        /* コンボシステムUI */
+        #combo-ui {
+            position: absolute;
+            top: 25px; right: 40px;
+            text-align: right;
+            font-size: 28px;
+            color: #00ffff;
+            text-shadow: 0 0 10px rgba(0,255,255,0.6);
+            z-index: 100;
+            pointer-events: none;
+            display: none;
+        }
+        #combo-timer-bar {
+            width: 120px; height: 6px;
+            border: 1px solid #00ffff;
+            margin-top: 4px;
+            float: right;
+            overflow: hidden;
+            background: rgba(0, 50, 50, 0.5);
+        }
+        #combo-progress { width: 100%; height: 100%; background-color: #00ffff; }
+
+        /* リロード中ゲージ */
+        #reload-indicator {
+            position: fixed; top: 60%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 20px; color: #ffff00; text-shadow: 0 0 8px rgba(255,255,0,0.8);
+            z-index: 100; display: none; text-align: center;
+        }
+        #reload-bar { width: 150px; height: 6px; border: 1px solid #ffff00; margin-top: 8px; position: relative; overflow: hidden; }
+        #reload-progress { width: 0%; height: 100%; background-color: #ffff00; }
+
+        /* スコープマスク */
+        #scope-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: 
+                radial-gradient(circle 280px at center, transparent 95%, rgba(0, 5, 0, 0.95) 100%),
+                radial-gradient(circle 400px at center, transparent 40%, rgba(0, 20, 0, 0.3) 100%);
+            pointer-events: none; z-index: 50; border: 2px solid #00ff00; box-sizing: border-box;
+            box-shadow: inset 0 0 100px rgba(0,255,0,0.2); display: none;
+        }
+        #reticle {
+            position: fixed; top: 50%; left: 50%; width: 560px; height: 560px;
+            transform: translate(-50%, -50%); border: 1px solid rgba(0, 255, 0, 0.4); border-radius: 50%;
+            pointer-events: none; z-index: 51; display: none;
+        }
+        #reticle::before, #reticle::after { content: ''; position: absolute; background: rgba(0, 255, 0, 0.7); box-shadow: 0 0 4px rgba(0,255,0,0.5); }
+        #reticle::before { top: 0; left: 50%; width: 1px; height: 100%; }
+        #reticle::after { top: 50%; left: 0; width: 100%; height: 1px; }
+        #reticle-dot { position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; background: #00ff00; border-radius: 50%; transform: translate(-50%, -50%); }
+
+        /* 👾 ターゲット */
+        .target {
+            position: absolute; width: 110px; height: 110px; cursor: pointer; z-index: 10;
+            display: flex; justify-content: center; align-items: center;
+            animation: spawnPop 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .target .fallback-emoji { font-size: 75px; filter: drop-shadow(0 0 10px rgba(0,0,0,0.5)); }
+
+        /* 🔥 エフェクト */
+        .flash-effect {
+            position: absolute; width: 120px; height: 120px;
+            background: radial-gradient(circle, rgba(255,255,200,1) 0%, rgba(255,100,0,0.8) 40%, transparent 70%);
+            border-radius: 50%; pointer-events: none; z-index: 60;
+            transform: translate(-50%, -50%); animation: flashAnim 0.08s ease-out forwards;
+        }
+        .hit-effect { position: absolute; font-size: 32px; pointer-events: none; z-index: 65; animation: fadeOutUp 0.5s ease-out forwards; }
+
+        @keyframes spawnPop { 0% { transform: scale(0) rotate(-20deg); opacity: 0; } 100% { transform: scale(1) rotate(0deg); opacity: 1; } }
+        @keyframes flashAnim { 0% { transform: translate(-50%, -50%) scale(0.3); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; } }
+        @keyframes fadeOutUp { 0% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -100%) scale(1.2); } }
+        @keyframes screenShake { 0% { transform: translate(0, 0) scale(1); } 20% { transform: translate(-5px, -25px) scale(1.02); } 40% { transform: translate(4px, 5px) scale(1.01); } 60% { transform: translate(-2px, -2px) scale(1); } 100% { transform: translate(0, 0) scale(1); } }
+    </style>
+</head>
+<body>
+
+<!-- 🎬 タイトル画面 -->
+<div id="title-screen" class="screen-overlay">
+    <h1>TACTICAL SNIPER</h1>
+    <div class="subtitle">ELITE OPERATION MISSION</div>
+    <button class="cyber-btn" onclick="startGame()">MISSION START</button>
+</div>
+
+<!-- 💀 リザルト・ランキング画面 -->
+<div id="result-screen" class="screen-overlay" style="display: none;">
+    <h1 id="result-title">MISSION FAILED</h1>
+    <div id="final-score-display" style="font-size: 28px; margin: 10px 0; color: #ffff00;">SCORE: 0000</div>
+    <div style="font-size: 14px; color: #66cc66;">-- GLOBAL RANKING --</div>
+    <div id="leaderboard-board" class="leaderboard"></div>
+    <button class="cyber-btn" onclick="resetGame()">REDEPLOY (RETRY)</button>
+</div>
+
+<!-- 🔘 HUD手動リロードボタン（画面右下に常駐） -->
+<button id="hud-reload-btn" onclick="triggerManualReload(event)">RELOAD [L-CLICK]</button>
+
+<!-- 🎮 ゲーム本編 -->
+<div id="game-container">
+    <div id="ui">
+        MISSION SCORE: <span id="score">0000</span> <br>
+        PLAYER LIFE:   <span id="life">❤️❤️❤️</span> <br>
+        AMMO CAPACITY: <span id="ammo" class="ammo">⚡⚡⚡⚡⚡</span>
+    </div>
+    
+    <!-- コンボ表示UI -->
+    <div id="combo-ui">
+        <span id="combo-count">0</span> COMBO!<br>
+        <span id="combo-multiplier" style="font-size:16px;color:#fff;">x1.0</span>
+        <div id="combo-timer-bar"><div id="combo-progress"></div></div>
+    </div>
+    
+    <div id="reload-indicator">
+        RELOADING...
+        <div id="reload-bar"><div id="reload-progress"></div></div>
+    </div>
+
+    <div id="scope-overlay"></div>
+    <div id="reticle"><div id="reticle-dot"></div></div>
+</div>
+
+<script>
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let isPlaying = false;
+
+    function playSound(type) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
+
+        if (type === 'shoot') {
+            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(300, now);
+            osc.frequency.exponentialRampToValueAtTime(10, now + 0.12);
+            gain.gain.setValueAtTime(0.4, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+            osc.start(now); osc.stop(now + 0.15);
+        } else if (type === 'dryfire') {
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(800, now);
+            gain.gain.setValueAtTime(0.1, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.03);
+            osc.start(now); osc.stop(now + 0.03);
+        } else if (type === 'reload') {
+            osc.type = 'sine'; osc.frequency.setValueAtTime(200, now); osc.frequency.setValueAtTime(400, now + 0.08);
+            gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+            osc.start(now); osc.stop(now + 0.15);
+        } else if (type === 'reload_success') {
+            osc.type = 'sine'; osc.frequency.setValueAtTime(600, now); osc.frequency.exponentialRampToValueAtTime(1200, now + 0.15);
+            gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+            osc.start(now); osc.stop(now + 0.2);
+        } else if (type === 'damage') {
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(120, now); osc.frequency.linearRampToValueAtTime(60, now + 0.3);
+            gain.gain.setValueAtTime(0.5, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.3);
+            osc.start(now); osc.stop(now + 0.3);
+        } else if (type === 'hit') {
+            osc.type = 'sine'; osc.frequency.setValueAtTime(800, now); osc.frequency.setValueAtTime(1200, now + 0.05);
+            gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+            osc.start(now); osc.stop(now + 0.1);
+        } else if (type === 'armor_break') {
+            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(600, now); osc.frequency.setValueAtTime(900, now + 0.04);
+            gain.gain.setValueAtTime(0.25, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+            osc.start(now); osc.stop(now + 0.12);
+        } else if (type === 'combo') {
+            osc.type = 'sine'; osc.frequency.setValueAtTime(700 + (comboCount * 50), now);
+            gain.gain.setValueAtTime(0.15, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+            osc.start(now); osc.stop(now + 0.08);
+        } else if (type === 'gameover') {
+            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(100, now); osc.frequency.linearRampToValueAtTime(30, now + 0.8);
+            gain.gain.setValueAtTime(0.5, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.8);
+            osc.start(now); osc.stop(now + 0.8);
+        }
+    }
+
+    let score = 0;
+    let life = 3;
+    let maxAmmo = 5;
+    let currentAmmo = 5;
+    let isReloading = false;
+    let gameInterval;
+    
+    let comboCount = 0;
+    let comboTimer = null;
+    const COMBO_LIMIT = 2000; 
+    let comboStartTime = 0;
+    let comboAnimFrame = null;
+
+    const container = document.getElementById('game-container');
+    const scoreDisplay = document.getElementById('score');
+    const lifeDisplay = document.getElementById('life');
+    const ammoDisplay = document.getElementById('ammo');
+    const reloadIndicator = document.getElementById('reload-indicator');
+    const reloadProgress = document.getElementById('reload-progress');
+    const hudReloadBtn = document.getElementById('hud-reload-btn');
+    
+    const comboUi = document.getElementById('combo-ui');
+    const comboCountDisplay = document.getElementById('combo-count');
+    const comboMultiplierDisplay = document.getElementById('combo-multiplier');
+    const comboProgress = document.getElementById('combo-progress');
+
+    function startGame() {
+        document.getElementById('title-screen').style.display = 'none';
+        document.getElementById('ui').style.display = 'block';
+        document.getElementById('scope-overlay').style.display = 'block';
+        document.getElementById('reticle').style.display = 'block';
+        hudReloadBtn.style.display = 'block'; // リロードボタン出現
+        
+        isPlaying = true;
+        score = 0;
+        life = 3;
+        currentAmmo = maxAmmo;
+        comboCount = 0;
+        comboUi.style.display = 'none';
+        scoreDisplay.innerText = "0000";
+        lifeDisplay.innerHTML = '❤️️❤️️❤️️';
+        updateAmmoUI();
+
+        gameInterval = setInterval(spawnTarget, 900);
+    }
+
+    // 🔘 ボタンを押してリロードを起動する関数（射撃判定にイベントが流れるのを防ぐ）
+    function triggerManualReload(e) {
+        e.stopPropagation(); 
+        startReload();
+    }
+
+    // 🎯 通常の左クリック射撃判定
+    function attemptShoot(e, clickedTarget = null) {
+        if (!isPlaying || isReloading) return;
+
+        if (currentAmmo <= 0) {
+            playSound('dryfire');
+            createTextEffect(e.clientX, e.clientY, "EMPTY! CLICK RELOAD", "#ffff00");
+            startReload();
+            return;
+        }
+
+        currentAmmo--;
+        updateAmmoUI();
+        playSound('shoot');
+        createFlash(e.clientX, e.clientY);
+        container.classList.remove('recoil');
+        void container.offsetWidth;
+        container.classList.add('recoil');
+
+        if (clickedTarget) {
+            const isEnemy = clickedTarget.classList.contains('enemy');
+            const isHeavy = clickedTarget.classList.contains('heavy-enemy');
+
+            if (isEnemy) {
+                if (isHeavy && clickedTarget.dataset.hp > 1) {
+                    clickedTarget.dataset.hp--;
+                    clickedTarget.innerHTML = `<div class="fallback-emoji">🥷</div>`;
+                    playSound('armor_break');
+                    createTextEffect(e.clientX, e.clientY, "ARMOR BREAK!", "#ffff00");
+                    if (comboCount > 0) resetComboTimer(); 
+                } else {
+                    clearTimeout(clickedTarget.attackTimer);
+                    comboCount++;
+                    let multiplier = 1 + (comboCount - 1) * 0.5;
+                    let basePoints = isHeavy ? 300 : 100;
+                    let gainedScore = Math.floor(basePoints * multiplier);
+                    score += gainedScore;
+                    scoreDisplay.innerText = String(score).padStart(4, '0');
+                    
+                    if (comboCount > 1) {
+                        comboUi.style.display = 'block';
+                        comboCountDisplay.innerText = comboCount;
+                        comboMultiplierDisplay.innerText = `x${multiplier.toFixed(1)}`;
+                        playSound('combo');
+                        createTextEffect(e.clientX, e.clientY, `+${gainedScore} (${comboCount} COMBO!)`, "#00ffff");
+                    } else {
+                        playSound('hit');
+                        createTextEffect(e.clientX, e.clientY, `+${gainedScore}`, "#00ff00");
+                    }
+
+                    resetComboTimer();
+                    targetList = targetList.filter(t => t !== clickedTarget);
+                    clickedTarget.remove();
+                }
+            } else {
+                breakCombo();
+                playSound('damage');
+                createTextEffect(e.clientX, e.clientY, "HOSTAGE HIT!", "#ff0000");
+                setTimeout(() => gameOver("人質を誤射しました！ MISSION FAILED"), 200);
+            }
+        } else {
+            breakCombo();
+        }
+    }
+
+    function resetComboTimer() {
+        clearTimeout(comboTimer);
+        cancelAnimationFrame(comboAnimFrame);
+        comboStartTime = performance.now();
+        
+        function updateComboBar(timestamp) {
+            if (!isPlaying) return;
+            let elapsed = timestamp - comboStartTime;
+            let remainingPercent = 100 - (elapsed / COMBO_LIMIT) * 100;
+            
+            if (remainingPercent > 0) {
+                comboProgress.style.width = `${remainingPercent}%`;
+                comboAnimFrame = requestAnimationFrame(updateComboBar);
+            } else {
+                comboProgress.style.width = '0%';
+            }
+        }
+        comboAnimFrame = requestAnimationFrame(updateComboBar);
+        comboTimer = setTimeout(() => { breakCombo(); }, COMBO_LIMIT);
+    }
+
+    function breakCombo() {
+        if (comboCount > 1) {
+            createTextEffect(window.innerWidth / 2 + 100, 100, "COMBO BREAK", "#ff3333");
+        }
+        comboCount = 0;
+        comboUi.style.display = 'none';
+        clearTimeout(comboTimer);
+        cancelAnimationFrame(comboAnimFrame);
+    }
+
+    function startReload() {
+        if (isReloading || currentAmmo === maxAmmo || !isPlaying) return;
+        isReloading = true;
+        reloadIndicator.style.display = 'block';
+        playSound('reload');
+        breakCombo();
+
+        let start = null;
+        const duration = 1200;
+
+        function animateReload(timestamp) {
+            if (!isPlaying) return;
+            if (!start) start = timestamp;
+            let progress = timestamp - start;
+            let percentage = Math.min((progress / duration) * 100, 100);
+            reloadProgress.style.width = `${percentage}%`;
+
+            if (progress < duration) {
+                requestAnimationFrame(animateReload);
+            } else {
+                currentAmmo = maxAmmo;
+                updateAmmoUI();
+                isReloading = false;
+                reloadIndicator.style.display = 'none';
+                reloadProgress.style.width = '0%';
+                playSound('reload_success');
+            }
+        }
+        requestAnimationFrame(animateReload);
+    }
+
+    function updateAmmoUI() {
+        ammoDisplay.innerHTML = '⚡'.repeat(currentAmmo) + '・'.repeat(maxAmmo - currentAmmo);
+    }
+
+    // 背景クリックで射撃
+    window.addEventListener('click', (e) => {
+        if(isPlaying) attemptShoot(e);
+    });
+
+    function createFlash(x, y) {
+        const flash = document.createElement('div');
+        flash.classList.add('flash-effect');
+        flash.style.left = `${x}px`; flash.style.top = `${y}px`;
+        container.appendChild(flash);
+        setTimeout(() => flash.remove(), 80);
+    }
+
+    function createTextEffect(x, y, text, color = '#ff0000') {
+        const effect = document.createElement('div');
+        effect.classList.add('hit-effect');
+        effect.innerText = text;
+        effect.style.left = `${x}px`; effect.style.top = `${y}px`;
+        effect.style.color = color; effect.style.textShadow = `0 0 10px ${color}`;
+        container.appendChild(effect);
+        setTimeout(() => effect.remove(), 500);
+    }
+
+    let targetList = [];
+
+    function spawnTarget() {
+        if (!isPlaying || life <= 0) return;
+
+        const target = document.createElement('div');
+        target.classList.add('target');
+        
+        const isEnemy = Math.random() > 0.3;
+        
+        if (isEnemy) {
+            target.classList.add('enemy');
+            const isHeavy = Math.random() < 0.3;
+            if (isHeavy) {
+                target.classList.add('heavy-enemy');
+                target.dataset.hp = 2;
+                target.innerHTML = `<div class="fallback-emoji">🥷🪖</div>`;
+            } else {
+                target.innerHTML = `<div class="fallback-emoji">🥷</div>`;
+            }
+            
+            target.attackTimer = setTimeout(() => {
+                if (isPlaying) {
+                    takeDamage("ENEMY ATTACKED!");
+                    targetList = targetList.filter(t => t !== target);
+                    target.remove();
+                }
+            }, 1500);
+        } else {
+            target.classList.add('hostage');
+            target.innerHTML = `<div class="fallback-emoji">🧑‍🤝‍🧑</div>`;
+        }
+
+        const padding = 160;
+        const x = Math.random() * (window.innerWidth - padding * 2) + padding;
+        const y = Math.random() * (window.innerHeight - padding * 2) + padding;
+        target.style.left = `${x - 55}px`; target.style.top = `${y - 55}px`;
+
+        target.addEventListener('click', (e) => {
+            e.stopPropagation(); // 背景クリックを完全に上書き
+            attemptShoot(e, target);
+        });
+
+        container.appendChild(target);
+        targetList.push(target);
+
+        setTimeout(() => {
+            if (target.parentNode && isPlaying) {
+                targetList = targetList.filter(t => t !== target);
+                target.remove();
+            }
+        }, 2500);
+    }
+
+    function takeDamage(reason) {
+        if (!isPlaying) return;
+        life--;
+        breakCombo();
+        playSound('damage');
+        createTextEffect(window.innerWidth / 2, window.innerHeight / 2 - 50, "⚠️ DAMAGED ⚠️", "#ff3333");
+        lifeDisplay.innerHTML = '<span class="heart">❤️</span>'.repeat(life) + '🖤'.repeat(3 - life);
+        if (life <= 0) {
+            gameOver("ライフがなくなりました！ MISSION FAILED");
+        }
+    }
+
+    function gameOver(reasonMessage) {
+        isPlaying = false;
+        clearInterval(gameInterval);
+        playSound('gameover');
+        breakCombo();
+
+        targetList.forEach(t => {
+            if (t.attackTimer) clearTimeout(t.attackTimer);
+            t.remove();
+        });
+        targetList = [];
+        isReloading = false;
+        reloadIndicator.style.display = 'none';
+        hudReloadBtn.style.display = 'none'; // リロードボタンを隠す
+
+        document.getElementById('result-title').innerText = reasonMessage.includes("人質") ? "HOSTAGE KILLED" : "MISSION FAILED";
+        document.getElementById('final-score-display').innerText = `FINAL SCORE: ${String(score).padStart(4, '0')}`;
+
+        showAndSaveRanking(score);
+        document.getElementById('result-screen').style.display = 'flex';
+    }
+
+    function showAndSaveRanking(currentScore) {
+        let scores = JSON.parse(localStorage.getItem('sniper_scores')) || [];
+        scores.push(currentScore);
+        scores.sort((a, b) => b - a);
+        scores = scores.slice(0, 5);
+
+        const board = document.getElementById('leaderboard-board');
+        board.innerHTML = "";
+
+        let currentScoreHighlighted = false;
+
+        scores.forEach((s, i) => {
+            const item = document.createElement('div');
+            item.classList.add('rank-item');
+            
+            if (s === currentScore && !currentScoreHighlighted) {
+                item.classList.add('current-score');
+                item.innerHTML = `<span>RANK ${i+1} (YOU)</span> <span>${String(s).padStart(4, '0')} PTS</span>`;
+                currentScoreHighlighted = true;
+            } else {
+                item.innerHTML = `<span>RANK ${i+1}</span> <span>${String(s).padStart(4, '0')} PTS</span>`;
+            }
+            board.appendChild(item);
+        });
+    }
+
+    function resetGame() {
+        document.getElementById('result-screen').style.display = 'none';
+        startGame();
+    }
+</script>
+</body>
+</html>
